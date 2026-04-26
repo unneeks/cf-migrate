@@ -170,12 +170,30 @@
         "description": "Ask about your Codefresh → GitHub Actions migration",
         "isSticky": true,
         "commands": [
-          { "name": "analyse", "description": "Analyse the active pipeline" },
-          { "name": "plan", "description": "Generate a migration plan" },
-          { "name": "explain", "description": "Explain a CF construct or KB snippet" },
-          { "name": "snippet", "description": "Search the knowledge base" },
-          { "name": "status", "description": "Show the current migration status" },
-          { "name": "approve", "description": "Open the approval panel" }
+          {
+            "name": "analyse",
+            "description": "Analyse the active pipeline"
+          },
+          {
+            "name": "plan",
+            "description": "Generate a migration plan"
+          },
+          {
+            "name": "explain",
+            "description": "Explain a CF construct or KB snippet"
+          },
+          {
+            "name": "snippet",
+            "description": "Search the knowledge base"
+          },
+          {
+            "name": "status",
+            "description": "Show the current migration status"
+          },
+          {
+            "name": "approve",
+            "description": "Open the approval panel"
+          }
         ]
       }
     ],
@@ -221,11 +239,14 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
+    "compile": "tsc -b",
+    "bundle": "node esbuild.config.mjs",
+    "build": "tsc -b && node esbuild.config.mjs",
     "typecheck": "tsc -b --noEmit",
     "watch": "tsc -b --watch",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
-    "package": "vsce package --no-dependencies"
+    "vscode:prepublish": "node esbuild.config.mjs",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
   },
   "dependencies": {
     "@cf-migrate/agents": "*",
@@ -236,6 +257,8 @@
   "devDependencies": {
     "@types/node": "^20.14.11",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.1",
+    "esbuild": "^0.24.2",
     "typescript": "^5.5.4"
   }
 }
