@@ -6,8 +6,7 @@
   "publisher": "cf-migrate",
   "private": true,
   "engines": {
-    "vscode": "^1.90.0",
-    "node": ">=20"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other",
