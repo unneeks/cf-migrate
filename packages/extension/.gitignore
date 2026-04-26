@@ -1,0 +1,5 @@
+dist/
+*.vsix
+# Copied at build time from monorepo root — do not commit
+kb-default/
+prompt-templates/
