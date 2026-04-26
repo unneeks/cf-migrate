@@ -34,6 +34,7 @@ import {
 
 import {
   AnalysisAgent,
+  DeterministicGenerationAgent,
   DiscoveryAgent,
   GenerationAgent,
   KBManagerAgent,
@@ -53,12 +54,14 @@ export interface ExtensionServices {
   llm: LLMClient;
   /** Becomes true once the VSCode LM API returns at least one model. */
   llmAvailable: boolean;
+  /** True when cfMigrate.deterministicOnly is enabled in settings. */
+  deterministicOnly: boolean;
   agents: {
     discovery: DiscoveryAgent;
     analysis: AnalysisAgent;
     planning: PlanningAgent;
     recommendation: RecommendationAgent;
-    generation: GenerationAgent;
+    generation: GenerationAgent | DeterministicGenerationAgent;
     validation: ValidationAgent;
     kbManager: KBManagerAgent;
   };
@@ -106,6 +109,10 @@ export async function createServices(
     // VSCode LM API not ready — will retry on first user-initiated LLM call.
   }
 
+  const deterministicOnly =
+    vscode.workspace.getConfiguration('cfMigrate').get<boolean>('deterministicOnly', false) ||
+    !llmAvailable;
+
   const orgIndex = await loadOrgIndex(workspacePath);
 
   const discovery = new DiscoveryAgent({ ledger });
@@ -113,7 +120,7 @@ export async function createServices(
     llm,
     ledger,
     promptRenderer,
-    deterministicOnly: orgSettings.llmProvider === 'copilot' ? !llmAvailable : false,
+    deterministicOnly,
   });
   const kbManager = new KBManagerAgent({
     store: kbStore,
@@ -126,25 +133,33 @@ export async function createServices(
     ledger,
     promptRenderer,
     kbSearch,
-    deterministicOnly: !llmAvailable,
+    deterministicOnly,
   });
   const recommendation = new RecommendationAgent({
     llm,
     ledger,
     promptRenderer,
     ghaIndex: orgIndex,
-    deterministicOnly: !llmAvailable,
+    deterministicOnly,
   });
-  const generation = new GenerationAgent({
-    llm,
-    ledger,
-    promptRenderer,
-    kbStore,
-    kbSearch,
-    orgSettings,
-    orgIndex,
-    snippetRenderer: new SnippetRenderer(),
-  });
+  const generation = deterministicOnly
+    ? new DeterministicGenerationAgent({
+        ledger,
+        kbStore,
+        orgSettings,
+        orgIndex,
+        snippetRenderer: new SnippetRenderer(),
+      })
+    : new GenerationAgent({
+        llm,
+        ledger,
+        promptRenderer,
+        kbStore,
+        kbSearch,
+        orgSettings,
+        orgIndex,
+        snippetRenderer: new SnippetRenderer(),
+      });
   const validation = new ValidationAgent({
     ledger,
     orgSettings,
@@ -172,6 +187,7 @@ export async function createServices(
     promptRenderer,
     llm,
     llmAvailable,
+    deterministicOnly,
     agents: { discovery, analysis, planning, recommendation, generation, validation, kbManager },
     session,
     dispose() {

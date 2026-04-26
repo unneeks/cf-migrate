@@ -24,14 +24,18 @@ export class StatusBarManager implements vscode.Disposable {
     const phase = s.session.phase;
     const pipelines = s.session.inventory?.pipelines.length ?? 0;
     const plan = s.session.migrationPlan;
-    const lm = s.llmAvailable ? '' : ' ⚠ no LLM';
+
+    const modeTag = s.deterministicOnly ? ' ⚡ deterministic' : s.llmAvailable ? '' : ' ⚠ no LLM';
 
     let summary = `$(run-all) CF Migrate — ${phase}`;
     if (pipelines > 0) summary += ` · ${pipelines} pipeline${pipelines === 1 ? '' : 's'}`;
     if (plan) {
       summary += ` · ${plan.approvalState.approvedCount}/${plan.items.length} approved`;
     }
-    this.item.text = summary + lm;
+    this.item.text = summary + modeTag;
+    this.item.tooltip = s.deterministicOnly
+      ? 'CF Migrate — deterministic mode (no LLM calls)'
+      : 'Codefresh → GitHub Actions migration';
   }
 
   dispose(): void {

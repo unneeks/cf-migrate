@@ -6,5 +6,6 @@ export * from './planning/TierALookup';
 export * from './planning/PlanningAgent';
 export * from './planning/RecommendationAgent';
 export * from './generation/GenerationAgent';
+export * from './generation/DeterministicGenerationAgent';
 export * from './validation/ValidationAgent';
 export * from './kb/KBManagerAgent';
