@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "generatedAt": "2026-01-15T00:00:00.000Z",
+  "description": "Default CF→GHA migration knowledge base seed",
+  "items": [
+    { "id": "oidc-aws-auth", "type": "snippet", "path": "snippets/oidc-aws-auth.md" },
+    { "id": "oidc-gcp-wif", "type": "snippet", "path": "snippets/oidc-gcp-wif.md" },
+    { "id": "checkout-with-cache", "type": "snippet", "path": "snippets/checkout-with-cache.md" },
+    { "id": "artifact-upload", "type": "snippet", "path": "snippets/artifact-upload.md" },
+    { "id": "artifact-download", "type": "snippet", "path": "snippets/artifact-download.md" },
+    { "id": "docker-buildkit-cache", "type": "snippet", "path": "snippets/docker-buildkit-cache.md" },
+    { "id": "job-output-declaration", "type": "snippet", "path": "snippets/job-output-declaration.md" },
+    { "id": "matrix-multi-version", "type": "snippet", "path": "snippets/matrix-multi-version.md" },
+    { "id": "environment-deploy-gate", "type": "snippet", "path": "snippets/environment-deploy-gate.md" },
+    { "id": "retry-wrapper", "type": "snippet", "path": "snippets/retry-wrapper.md" },
+    { "id": "slack-notification", "type": "snippet", "path": "snippets/slack-notification.md" },
+    { "id": "helm-upgrade", "type": "snippet", "path": "snippets/helm-upgrade.md" },
+
+    { "id": "freestyle-to-run", "type": "pattern", "path": "patterns/freestyle-to-run.md" },
+    { "id": "parallel-to-matrix", "type": "pattern", "path": "patterns/parallel-to-matrix.md" },
+    { "id": "parallel-to-sibling-jobs", "type": "pattern", "path": "patterns/parallel-to-sibling-jobs.md" },
+    { "id": "shared-volume-to-artifact", "type": "pattern", "path": "patterns/shared-volume-to-artifact.md" },
+    { "id": "cf-export-to-output", "type": "pattern", "path": "patterns/cf-export-to-output.md" },
+    { "id": "build-push-to-action", "type": "pattern", "path": "patterns/build-push-to-action.md" },
+    { "id": "deploy-to-environment", "type": "pattern", "path": "patterns/deploy-to-environment.md" },
+    { "id": "context-to-secrets", "type": "pattern", "path": "patterns/context-to-secrets.md" },
+    { "id": "composition-to-services", "type": "pattern", "path": "patterns/composition-to-services.md" },
+    { "id": "triggers-to-on-events", "type": "pattern", "path": "patterns/triggers-to-on-events.md" },
+    { "id": "hooks-to-always-steps", "type": "pattern", "path": "patterns/hooks-to-always-steps.md" },
+
+    { "id": "node-ci", "type": "template", "path": "templates/node-ci.md" },
+    { "id": "docker-build-push", "type": "template", "path": "templates/docker-build-push.md" },
+    { "id": "helm-deploy", "type": "template", "path": "templates/helm-deploy.md" },
+    { "id": "reusable-workflow-skeleton", "type": "template", "path": "templates/reusable-workflow-skeleton.md" },
+    { "id": "multi-env-promotion", "type": "template", "path": "templates/multi-env-promotion.md" }
+  ]
+}

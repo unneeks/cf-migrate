@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+*.vsix
+*.tsbuildinfo
+.cf-migrate/
+.DS_Store
+.vscode-test/
+coverage/

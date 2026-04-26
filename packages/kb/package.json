@@ -1,0 +1,21 @@
+{
+  "name": "@cf-migrate/kb",
+  "version": "0.1.0",
+  "description": "Knowledge Base storage, search and snippet rendering",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsc -b --watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@cf-migrate/core": "*",
+    "yaml": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.5"
+  }
+}

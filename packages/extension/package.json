@@ -1,0 +1,241 @@
+{
+  "name": "cf-migrate-vscode",
+  "displayName": "CF Migrate — Codefresh to GitHub Actions",
+  "description": "Intelligent Codefresh → GitHub Actions migration assistant, powered by GitHub Copilot.",
+  "version": "0.1.0",
+  "publisher": "cf-migrate",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "codefresh",
+    "github actions",
+    "ci/cd",
+    "migration",
+    "copilot"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/codefresh.yml",
+    "workspaceContains:**/codefresh.yaml",
+    "workspaceContains:**/*.cf.yml",
+    "workspaceContains:**/.codefresh/**"
+  ],
+  "extensionDependencies": [
+    "github.copilot-chat"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "cf-migrate.discover",
+        "title": "CF Migrate: Discover Pipelines",
+        "category": "CF Migrate",
+        "icon": "$(search)"
+      },
+      {
+        "command": "cf-migrate.analyse",
+        "title": "CF Migrate: Analyse Active Pipeline",
+        "category": "CF Migrate",
+        "icon": "$(microscope)"
+      },
+      {
+        "command": "cf-migrate.plan",
+        "title": "CF Migrate: Generate Migration Plan",
+        "category": "CF Migrate",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "cf-migrate.openApproval",
+        "title": "CF Migrate: Review & Approve Plan",
+        "category": "CF Migrate",
+        "icon": "$(check)"
+      },
+      {
+        "command": "cf-migrate.generate",
+        "title": "CF Migrate: Generate Workflows",
+        "category": "CF Migrate",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "cf-migrate.validate",
+        "title": "CF Migrate: Validate Generated Workflows",
+        "category": "CF Migrate",
+        "icon": "$(verified)"
+      },
+      {
+        "command": "cf-migrate.openKB",
+        "title": "CF Migrate: Open Knowledge Base",
+        "category": "CF Migrate",
+        "icon": "$(book)"
+      },
+      {
+        "command": "cf-migrate.indexGHA",
+        "title": "CF Migrate: Index Organisation GHA Repos",
+        "category": "CF Migrate",
+        "icon": "$(database)"
+      },
+      {
+        "command": "cf-migrate.showReport",
+        "title": "CF Migrate: Show Migration Report",
+        "category": "CF Migrate",
+        "icon": "$(output)"
+      },
+      {
+        "command": "cf-migrate.setActivePipeline",
+        "title": "CF Migrate: Set Active Pipeline",
+        "category": "CF Migrate"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cf-migrate",
+          "title": "CF Migrate",
+          "icon": "$(run-all)"
+        }
+      ]
+    },
+    "views": {
+      "cf-migrate": [
+        {
+          "id": "cf-migrate.pipelines",
+          "name": "Pipelines"
+        },
+        {
+          "id": "cf-migrate.kb",
+          "name": "Knowledge Base"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "cf-migrate.discover",
+          "when": "view == cf-migrate.pipelines",
+          "group": "navigation"
+        },
+        {
+          "command": "cf-migrate.indexGHA",
+          "when": "view == cf-migrate.pipelines",
+          "group": "navigation"
+        },
+        {
+          "command": "cf-migrate.openKB",
+          "when": "view == cf-migrate.kb",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "cf-migrate.setActivePipeline",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "inline"
+        },
+        {
+          "command": "cf-migrate.analyse",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "phase@1"
+        },
+        {
+          "command": "cf-migrate.plan",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "phase@2"
+        },
+        {
+          "command": "cf-migrate.generate",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "phase@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "cf-migrate.setActivePipeline",
+          "when": "false"
+        }
+      ]
+    },
+    "chatParticipants": [
+      {
+        "id": "cf-migrate.assistant",
+        "name": "cf-migrate",
+        "fullName": "CF Migrate",
+        "description": "Ask about your Codefresh → GitHub Actions migration",
+        "isSticky": true,
+        "commands": [
+          { "name": "analyse", "description": "Analyse the active pipeline" },
+          { "name": "plan", "description": "Generate a migration plan" },
+          { "name": "explain", "description": "Explain a CF construct or KB snippet" },
+          { "name": "snippet", "description": "Search the knowledge base" },
+          { "name": "status", "description": "Show the current migration status" },
+          { "name": "approve", "description": "Open the approval panel" }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "CF Migrate",
+      "properties": {
+        "cfMigrate.kbPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the knowledge base directory. Defaults to the bundled kb-default."
+        },
+        "cfMigrate.orgName": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub organisation name used when indexing reference repos."
+        },
+        "cfMigrate.ghaRepoPaths": {
+          "type": "array",
+          "default": [],
+          "description": "Local clone paths of GHA reference repos used to build the org workflow index."
+        },
+        "cfMigrate.runActionlint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run actionlint on generated workflows (requires actionlint on PATH)."
+        },
+        "cfMigrate.enableHashChain": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable SHA-256 hash chaining on the audit ledger for tamper-evident history."
+        },
+        "cfMigrate.autoIndexOnActivation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically discover pipelines on extension activation."
+        },
+        "cfMigrate.deterministicOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip all LLM passes and run deterministic analysis/planning only."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "watch": "tsc -b --watch",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@cf-migrate/agents": "*",
+    "@cf-migrate/core": "*",
+    "@cf-migrate/kb": "*",
+    "@cf-migrate/llm": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.11",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  }
+}

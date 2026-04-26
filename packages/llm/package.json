@@ -1,0 +1,22 @@
+{
+  "name": "@cf-migrate/llm",
+  "version": "0.1.0",
+  "description": "LLM provider abstraction — wraps GitHub Copilot via vscode.lm with a fallback interface",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsc -b --watch",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@cf-migrate/core": "*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.5"
+  }
+}

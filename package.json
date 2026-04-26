@@ -1,0 +1,26 @@
+{
+  "name": "cf-migrate-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Codefresh → GitHub Actions intelligent migration system (VSCode extension wrapping GitHub Copilot)",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/core packages/kb packages/llm packages/agents packages/extension",
+    "typecheck": "tsc -b --noEmit packages/core packages/kb packages/llm packages/agents packages/extension",
+    "watch": "tsc -b --watch packages/core packages/kb packages/llm packages/agents packages/extension",
+    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo node_modules/.cache"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.11",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
