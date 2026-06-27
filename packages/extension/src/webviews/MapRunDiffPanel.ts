@@ -382,6 +382,17 @@ function parseCFRanges(yaml: string, mappings: MapRunMapping[]): Record<number, 
   return result;
 }
 
+// Real-world generated YAML often quotes step names that contain special characters
+// (parentheses, colons, …) — `- name: "AWS OIDC Authoriser (MANUAL REVIEW)"` — while
+// map.json's gha_step is the plain unquoted text. Strip a single matching pair of quotes
+// (and any trailing inline comment) before comparing, so the match isn't exact-string-only.
+function normalizeStepName(raw: string): string {
+  let s = raw.trim();
+  const quoted = s.match(/^(['"])(.*)\1$/);
+  if (quoted) s = quoted[2];
+  return s.trim();
+}
+
 function parseGHARanges(yaml: string, mappings: MapRunMapping[]): Record<number, StepRange> {
   const lines = yaml.split('\n');
   const result: Record<number, StepRange> = {};
@@ -389,12 +400,12 @@ function parseGHARanges(yaml: string, mappings: MapRunMapping[]): Record<number,
   const found: { name: string; line: number }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/^\s+- name:\s+(.+)$/);
-    if (m) found.push({ name: m[1].trim(), line: i });
+    if (m) found.push({ name: normalizeStepName(m[1]), line: i });
   }
 
   for (let j = 0; j < found.length; j++) {
     const end = j + 1 < found.length ? found[j + 1].line - 1 : lines.length - 1;
-    const mapping = mappings.find(m => m.gha_step === found[j].name);
+    const mapping = mappings.find(m => normalizeStepName(m.gha_step) === found[j].name);
     if (mapping) result[mapping.seq] = { start: found[j].line, end };
   }
   return result;
