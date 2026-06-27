@@ -25,6 +25,8 @@ import { StatusBarManager } from './statusbar/StatusBarManager';
 import { MapRunDiffPanel } from './webviews/MapRunDiffPanel';
 import { createServices, type ExtensionServices } from './services/ExtensionServices';
 import type { MapRunEntry } from './scanners/MapRunScanner';
+import { runGenerateCallerWorkflows } from './commands/generateCallerWorkflows';
+import type { TemplateGroup } from './utils/TemplateGrouping';
 
 let currentServices: ExtensionServices | undefined;
 
@@ -50,7 +52,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void mapRunProvider.refresh();
     }),
     vscode.commands.registerCommand('cf-migrate.openMapRun', (entry: MapRunEntry) => {
-      void MapRunDiffPanel.show(context, entry);
+      void MapRunDiffPanel.show(context, entry, servicesGetter);
+    }),
+    vscode.commands.registerCommand('cf-migrate.explainInstance', (entry: MapRunEntry, group: TemplateGroup) => {
+      void vscode.window.showInformationMessage(
+        `"${entry.data.meta.pipeline_name}" is an instance of template "${group.template.data.meta.pipeline_name}" — ` +
+          `mapping is defined once on the template. Right-click the template group and choose ` +
+          `"Generate Caller Workflows" to emit this instance's reusable-workflow caller.`,
+        'Open Template Map Run',
+      ).then((choice) => {
+        if (choice) void MapRunDiffPanel.show(context, group.template, servicesGetter);
+      });
+    }),
+    vscode.commands.registerCommand('cf-migrate.generateCallerWorkflows', (group: TemplateGroup) => {
+      void runGenerateCallerWorkflows(group);
     }),
   );
 

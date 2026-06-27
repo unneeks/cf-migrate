@@ -6,7 +6,7 @@
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 
-export type PromptPhase = 'analysis' | 'planning' | 'generation' | 'recommendation';
+export type PromptPhase = 'analysis' | 'planning' | 'generation' | 'recommendation' | 'rule-learning';
 
 export interface RenderedPrompt {
   systemPrompt: string;

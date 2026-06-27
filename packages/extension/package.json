@@ -47,10 +47,22 @@
         "icon": "$(microscope)"
       },
       {
+        "command": "cf-migrate.analyse.force",
+        "title": "CF Migrate: Force Re-analyse (ignore cache)",
+        "category": "CF Migrate",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "cf-migrate.plan",
         "title": "CF Migrate: Generate Migration Plan",
         "category": "CF Migrate",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "cf-migrate.plan.force",
+        "title": "CF Migrate: Force Re-plan (ignore cache)",
+        "category": "CF Migrate",
+        "icon": "$(refresh)"
       },
       {
         "command": "cf-migrate.openApproval",
@@ -89,6 +101,12 @@
         "icon": "$(output)"
       },
       {
+        "command": "cf-migrate.selectLearnRuleModel",
+        "title": "CF Migrate: Select Learn Rule Model",
+        "category": "CF Migrate",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "cf-migrate.setActivePipeline",
         "title": "CF Migrate: Set Active Pipeline",
         "category": "CF Migrate"
@@ -104,6 +122,12 @@
         "title": "CF Migrate: Open Map Run Diff",
         "category": "CF Migrate",
         "icon": "$(diff)"
+      },
+      {
+        "command": "cf-migrate.generateCallerWorkflows",
+        "title": "CF Migrate: Generate Caller Workflows",
+        "category": "CF Migrate",
+        "icon": "$(combine)"
       }
     ],
     "viewsContainers": {
@@ -166,7 +190,17 @@
           "group": "phase@1"
         },
         {
+          "command": "cf-migrate.analyse.force",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "phase@1"
+        },
+        {
           "command": "cf-migrate.plan",
+          "when": "view == cf-migrate.pipelines && viewItem == pipeline",
+          "group": "phase@2"
+        },
+        {
+          "command": "cf-migrate.plan.force",
           "when": "view == cf-migrate.pipelines && viewItem == pipeline",
           "group": "phase@2"
         },
@@ -179,6 +213,11 @@
           "command": "cf-migrate.openMapRun",
           "when": "view == cf-migrate.mapRuns && viewItem == maprun-entry",
           "group": "inline"
+        },
+        {
+          "command": "cf-migrate.generateCallerWorkflows",
+          "when": "view == cf-migrate.mapRuns && viewItem == maprun-template-group",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -188,6 +227,14 @@
         },
         {
           "command": "cf-migrate.openMapRun",
+          "when": "false"
+        },
+        {
+          "command": "cf-migrate.generateCallerWorkflows",
+          "when": "false"
+        },
+        {
+          "command": "cf-migrate.explainInstance",
           "when": "false"
         }
       ]
@@ -264,6 +311,11 @@
           "type": "boolean",
           "default": false,
           "description": "Skip all LLM passes and run deterministic analysis/planning only."
+        },
+        "cfMigrate.learnRuleModel": {
+          "type": "string",
+          "default": "",
+          "description": "Copilot model family to use for the 'Learn Rule from manual edit' feature (e.g. gpt-4o, claude-sonnet-4). Leave empty to use the same default model Copilot Chat would pick. Use 'CF Migrate: Select Learn Rule Model' to choose from your available models."
         }
       }
     }
@@ -276,7 +328,8 @@
     "watch": "tsc -b --watch",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "vscode:prepublish": "node esbuild.config.mjs",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "package": "vsce package --no-dependencies --allow-missing-repository",
+    "test": "vitest run"
   },
   "dependencies": {
     "@cf-migrate/agents": "*",
@@ -289,6 +342,7 @@
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.28.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.9"
   }
 }

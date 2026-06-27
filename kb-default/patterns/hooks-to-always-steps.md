@@ -14,7 +14,7 @@ confidence: 0.9
 usageCount: 0
 lastUpdated: "2026-01-15T00:00:00.000Z"
 authors: [seed]
-description: Replace CF `hooks.on_success`, `hooks.on_fail`, `hooks.on_finish` with GHA `if:` conditions on trailing steps or a trailing job using `needs` + `if: always()`.
+description: "Replace CF `hooks.on_success`, `hooks.on_fail`, `hooks.on_finish` with GHA `if:` conditions on trailing steps or a trailing job using `needs` + `if: always()`."
 edgeNotes: >-
   `job.status` is only available to subsequent jobs (via `needs.<job>.result`), not
   within the same job. For intra-job "on_fail" logic, use `if: failure()` on a following

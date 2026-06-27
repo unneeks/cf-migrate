@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 
-const CF_CONSTRUCT_TYPES = z.enum([
+export const CF_CONSTRUCT_TYPES = z.enum([
   'pipeline.stages',
   'step.freestyle',
   'step.build',
@@ -101,6 +101,36 @@ export const RecommendationArraySchema = z.object({
 });
 
 export type RecommendationLLM = z.infer<typeof RecommendationLLMSchema>;
+
+/**
+ * SPEC §5.6 (extension) — "Learn rule from manual edit". Given the prior (machine-generated)
+ * mapping and the user's hand-edited GHA replacement, the LLM proposes a reusable rule: a
+ * match condition on the CF construct plus a parameterised action template. This is the
+ * truth gate for both the rules-yaml append and the new KB pattern item — a malformed
+ * response never reaches disk.
+ */
+export const LearnedRuleSchema = z.object({
+  rule_id: z.string().min(1).regex(/^[a-z0-9-]+$/, 'rule_id must be kebab-case'),
+  title: z.string().min(1),
+  cf_construct: CF_CONSTRUCT_TYPES,
+  gha_constructs: z.array(z.string()).min(1),
+  // NOTE: optional rather than .default() — see PlanItemLLMSchema above: z.ZodSchema<T> in
+  // callWithRetry collapses input/output types, so a .default() here would surface as
+  // `T | undefined` to callers instead of the narrowed output type.
+  match: z
+    .object({
+      cf_step_pattern: z.string().optional(),
+      image_pattern: z.string().optional(),
+    })
+    .optional(),
+  action_template: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  tags: z.array(z.string()).optional(),
+  description: z.string().min(1),
+  rationale: z.string().min(1),
+});
+
+export type LearnedRule = z.infer<typeof LearnedRuleSchema>;
 
 /**
  * The Generation call is YAML-out (not JSON), but we still validate that the post-processed

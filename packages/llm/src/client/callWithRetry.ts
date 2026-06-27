@@ -15,7 +15,7 @@ export interface CallWithRetryOptions<T> {
   /** Optional ledger for `llm.call` events. */
   ledger?: LedgerWriter;
   /** Phase label written to the ledger. */
-  phase: 'analysis' | 'planning' | 'generation' | 'recommendation';
+  phase: 'analysis' | 'planning' | 'generation' | 'recommendation' | 'rule-learning';
 }
 
 export async function callWithRetry<T>(opts: CallWithRetryOptions<T>): Promise<T> {

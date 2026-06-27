@@ -12,6 +12,14 @@ import type { PipelineFile } from '@cf-migrate/core';
 
 import { ApprovalPanel } from '../webviews/ApprovalPanel';
 import type { ExtensionServices } from '../services/ExtensionServices';
+import {
+  getCachedAnalysis,
+  getCachedPlan,
+  hashAnalysis,
+  hashPipeline,
+  setCachedAnalysis,
+  setCachedPlan,
+} from '../services/AnalysisPlanCache';
 
 export interface CommandContext {
   context: vscode.ExtensionContext;
@@ -27,14 +35,17 @@ export function registerCommands(cmdCtx: CommandContext): vscode.Disposable[] {
     vscode.commands.registerCommand('cf-migrate.setActivePipeline', (rel: string) =>
       runSetActive(cmdCtx, rel),
     ),
-    vscode.commands.registerCommand('cf-migrate.analyse', () => runAnalyse(cmdCtx)),
-    vscode.commands.registerCommand('cf-migrate.plan', () => runPlan(cmdCtx)),
+    vscode.commands.registerCommand('cf-migrate.analyse', () => runAnalyse(cmdCtx, false)),
+    vscode.commands.registerCommand('cf-migrate.analyse.force', () => runAnalyse(cmdCtx, true)),
+    vscode.commands.registerCommand('cf-migrate.plan', () => runPlan(cmdCtx, false)),
+    vscode.commands.registerCommand('cf-migrate.plan.force', () => runPlan(cmdCtx, true)),
     vscode.commands.registerCommand('cf-migrate.openApproval', () => runOpenApproval(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.generate', () => runGenerate(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.validate', () => runValidate(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.openKB', () => runOpenKB(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.indexGHA', () => runIndexGHA(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.showReport', () => runShowReport(cmdCtx)),
+    vscode.commands.registerCommand('cf-migrate.selectLearnRuleModel', () => runSelectLearnRuleModel(cmdCtx)),
   );
 
   return d;
@@ -85,11 +96,29 @@ function runSetActive(ctx: CommandContext, rel: string | undefined): void {
   ctx.onChange();
 }
 
-async function runAnalyse(ctx: CommandContext): Promise<void> {
+async function runAnalyse(ctx: CommandContext, force: boolean): Promise<void> {
   const s = ctx.services();
   if (!s) return noWorkspace();
   const pipeline = await ensureActivePipeline(s);
   if (!pipeline) return;
+  const workspacePath = s.workspaceFolder.uri.fsPath;
+  const contentHash = hashPipeline(pipeline.rawYaml);
+
+  if (!force) {
+    const cached = await getCachedAnalysis(workspacePath, pipeline.relativePath, contentHash);
+    if (cached) {
+      s.session.analysisResult = cached.result;
+      s.session.phase = 'analysed';
+      vscode.window.showInformationMessage(
+        `CF Migrate: using cached analysis from ${new Date(cached.at).toLocaleString()} ` +
+          `(pipeline unchanged since then) — ${cached.result.constructs.length} constructs. ` +
+          `Run "CF Migrate: Force Re-analyse" to re-run.`,
+      );
+      ctx.onChange();
+      return;
+    }
+  }
+
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'CF Migrate: analysing…', cancellable: false },
@@ -99,6 +128,7 @@ async function runAnalyse(ctx: CommandContext): Promise<void> {
         const result = await s.agents.analysis.analyse(pipeline);
         s.session.analysisResult = result;
         s.session.phase = 'analysed';
+        await setCachedAnalysis(workspacePath, pipeline.relativePath, contentHash, result);
       },
     );
     vscode.window.showInformationMessage(
@@ -112,7 +142,7 @@ async function runAnalyse(ctx: CommandContext): Promise<void> {
   ctx.onChange();
 }
 
-async function runPlan(ctx: CommandContext): Promise<void> {
+async function runPlan(ctx: CommandContext, force: boolean): Promise<void> {
   const s = ctx.services();
   if (!s) return noWorkspace();
   const pipeline = await ensureActivePipeline(s);
@@ -121,6 +151,25 @@ async function runPlan(ctx: CommandContext): Promise<void> {
     vscode.window.showWarningMessage('Run CF Migrate: Analyse first.');
     return;
   }
+  const workspacePath = s.workspaceFolder.uri.fsPath;
+  const contentHash = hashPipeline(pipeline.rawYaml);
+  const analysisHash = hashAnalysis(s.session.analysisResult);
+
+  if (!force) {
+    const cached = await getCachedPlan(workspacePath, pipeline.relativePath, contentHash, analysisHash);
+    if (cached) {
+      s.session.migrationPlan = cached.result;
+      s.session.phase = 'awaiting-approval';
+      vscode.window.showInformationMessage(
+        `CF Migrate: using cached plan from ${new Date(cached.at).toLocaleString()} ` +
+          `(pipeline and analysis unchanged since then). Run "CF Migrate: Force Re-plan" to re-run.`,
+      );
+      await vscode.commands.executeCommand('cf-migrate.openApproval');
+      ctx.onChange();
+      return;
+    }
+  }
+
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'CF Migrate: planning migration…' },
@@ -130,6 +179,7 @@ async function runPlan(ctx: CommandContext): Promise<void> {
         const plan = await s.agents.planning.plan(pipeline, s.session.analysisResult!);
         s.session.migrationPlan = plan;
         s.session.phase = 'planned';
+        await setCachedPlan(workspacePath, pipeline.relativePath, contentHash, analysisHash, plan);
         // Run advisory recommendations in parallel; surface as a diagnostic log entry.
         try {
           const recs = await s.agents.recommendation.recommend(s.session.analysisResult!, plan);
@@ -288,6 +338,62 @@ async function runShowReport(ctx: CommandContext): Promise<void> {
   const report = buildMarkdownReport(s);
   const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: report });
   await vscode.window.showTextDocument(doc, { preview: true });
+}
+
+// Lets the user pin a specific Copilot model family for the "Learn Rule from manual edit"
+// feature (cfMigrate.learnRuleModel). There's no API to read "the model Copilot Chat
+// currently has selected" outside of an active chat request, so "Default" here means: don't
+// constrain by family and let VSCodeLMProvider's own best-available heuristic pick — the
+// closest available proxy for "whatever Copilot Chat would default to".
+async function runSelectLearnRuleModel(ctx: CommandContext): Promise<void> {
+  if (!vscode.lm) {
+    vscode.window.showWarningMessage('CF Migrate: this VS Code version does not expose the Language Model API.');
+    return;
+  }
+  let models: vscode.LanguageModelChat[] = [];
+  try {
+    models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+  } catch (err) {
+    vscode.window.showErrorMessage(`CF Migrate: failed to list Copilot models: ${(err as Error).message}`);
+    return;
+  }
+  if (models.length === 0) {
+    vscode.window.showWarningMessage(
+      'CF Migrate: no Copilot chat models available — ensure GitHub Copilot Chat is installed and signed in.',
+    );
+    return;
+  }
+
+  const config = vscode.workspace.getConfiguration('cfMigrate');
+  const current = config.get<string>('learnRuleModel', '');
+
+  const items: (vscode.QuickPickItem & { family: string })[] = [
+    {
+      label: '$(sparkle) Default',
+      description: 'Same default Copilot Chat would pick',
+      family: '',
+      picked: current === '',
+    },
+    ...models.map((m) => ({
+      label: m.family,
+      description: `${m.vendor} · max ${m.maxInputTokens.toLocaleString()} tokens${m.family === current ? ' (current)' : ''}`,
+      family: m.family,
+      picked: m.family === current,
+    })),
+  ];
+
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Model to use for Learn Rule from manual edit',
+  });
+  if (!pick) return;
+
+  await config.update('learnRuleModel', pick.family, vscode.ConfigurationTarget.Global);
+  vscode.window.showInformationMessage(
+    pick.family
+      ? `CF Migrate: Learn Rule will use "${pick.family}".`
+      : 'CF Migrate: Learn Rule will use the default Copilot model.',
+  );
+  ctx.onChange();
 }
 
 function buildMarkdownReport(s: ExtensionServices): string {

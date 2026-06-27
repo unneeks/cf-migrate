@@ -1,0 +1,194 @@
+version: "1.0"
+kind: pipeline
+metadata:
+  name: BILLING/billing-deployment
+  project: BILLING
+  labels:
+    tags:
+      - production
+      - billing
+
+spec:
+  stages:
+    - prepare
+    - build
+    - test
+    - staging
+    - production
+    - notify
+
+  steps:
+
+    # ── PREPARE ──────────────────────────────────────────────────────────────
+
+    set_default_variables:
+      title: Set Default Variables
+      stage: prepare
+      type: freestyle
+      image: alpine:3.18
+      commands:
+        - cf_export IMAGE_TAG=${CF_SHORT_REVISION:-latest}
+        - cf_export ECR_REPO=123456789.dkr.ecr.us-east-1.amazonaws.com/billing-app
+        - cf_export CLUSTER_NAME=prod-eks-cluster
+        - cf_export HELM_RELEASE_NAME=billing
+
+    aws_oidc_authoriser:
+      title: AWS OIDC Authoriser
+      stage: prepare
+      type: freestyle
+      image: amazon/aws-cli:2.15.0
+      environment:
+        - AWS_ROLE_ARN=${{AWS_OIDC_ROLE_ARN}}
+        - AWS_WEB_IDENTITY_TOKEN_FILE=/var/run/secrets/oidc/token
+      commands:
+        - aws sts assume-role-with-web-identity
+            --role-arn $AWS_ROLE_ARN
+            --role-session-name codefresh-ci
+            --web-identity-token file://$AWS_WEB_IDENTITY_TOKEN_FILE
+            --duration-seconds 3600
+            --output json > /tmp/aws-creds.json
+        - export AWS_ACCESS_KEY_ID=$(jq -r .Credentials.AccessKeyId /tmp/aws-creds.json)
+        - cf_export AWS_ACCESS_KEY_ID
+        - cf_export AWS_SECRET_ACCESS_KEY=$(jq -r .Credentials.SecretAccessKey /tmp/aws-creds.json)
+        - cf_export AWS_SESSION_TOKEN=$(jq -r .Credentials.SessionToken /tmp/aws-creds.json)
+
+    git_clone:
+      title: Clone Repository
+      stage: prepare
+      type: git-clone
+      repo: myorg/billing-app
+      revision: ${{CF_REVISION}}
+      git: github-connection
+
+    # ── BUILD ─────────────────────────────────────────────────────────────────
+
+    build_docker_image:
+      title: Build Docker Image
+      stage: build
+      type: build
+      image_name: billing-app
+      tag: ${{IMAGE_TAG}}
+      dockerfile: Dockerfile
+      build_arguments:
+        - NODE_ENV=production
+        - APP_VERSION=${{IMAGE_TAG}}
+      no_cache: false
+
+    push_to_ecr:
+      title: Push to ECR
+      stage: build
+      type: push
+      candidate: ${{build_docker_image}}
+      tags:
+        - ${{IMAGE_TAG}}
+        - latest
+      registry: ecr-registry
+
+    # ── TEST ──────────────────────────────────────────────────────────────────
+
+    run_unit_tests:
+      title: Run Unit Tests
+      stage: test
+      type: freestyle
+      image: node:20-alpine
+      working_directory: ${{git_clone}}
+      commands:
+        - npm ci --prefer-offline
+        - npm test -- --coverage --ci
+        - npm run test:report
+
+    code_quality_scan:
+      title: Code Quality Scan
+      stage: test
+      type: freestyle
+      image: sonarsource/sonar-scanner-cli:5
+      environment:
+        - SONAR_HOST_URL=${{SONAR_HOST_URL}}
+        - SONAR_TOKEN=${{SONAR_TOKEN}}
+        - SONAR_PROJECT_VERSION=${{IMAGE_TAG}}
+      commands:
+        - sonar-scanner
+            -Dsonar.projectKey=billing-app
+            -Dsonar.sources=src
+            -Dsonar.tests=test
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.qualitygate.wait=true
+
+    integration_tests:
+      title: Integration Tests
+      stage: test
+      type: freestyle
+      image: node:20-alpine
+      working_directory: ${{git_clone}}
+      commands:
+        - npm run test:integration -- --baseUrl=${{STAGING_URL}} --reporter=junit
+      retry:
+        maxAttempts: 3
+        delay: 30
+
+    # ── STAGING ───────────────────────────────────────────────────────────────
+
+    deploy_to_staging:
+      title: Deploy to Staging
+      stage: staging
+      type: deploy
+      kind: helm
+      helm_version: 3.12.0
+      chart_name: charts/billing-app
+      release_name: billing-staging
+      kube_context: staging-eks-cluster
+      namespace: staging
+      set:
+        - image.tag=${{IMAGE_TAG}}
+        - image.repository=${{ECR_REPO}}
+        - replicaCount=3
+
+    smoke_tests:
+      title: Smoke Tests
+      stage: staging
+      type: freestyle
+      image: postman/newman:6-alpine
+      commands:
+        - newman run collections/smoke-tests.json
+            --env-var BASE_URL=${{STAGING_URL}}
+            --env-var API_KEY=${{STAGING_API_KEY}}
+            --reporters cli,junit
+            --reporter-junit-export results/smoke.xml
+
+    # ── PRODUCTION ────────────────────────────────────────────────────────────
+
+    deploy_to_production:
+      title: Deploy to Production
+      stage: production
+      type: deploy
+      kind: helm
+      helm_version: 3.12.0
+      chart_name: charts/billing-app
+      release_name: billing-production
+      kube_context: prod-eks-cluster
+      namespace: production
+      set:
+        - image.tag=${{IMAGE_TAG}}
+        - image.repository=${{ECR_REPO}}
+        - replicaCount=6
+      when:
+        branch:
+          only:
+            - main
+
+    # ── NOTIFY ────────────────────────────────────────────────────────────────
+
+    notify_teams:
+      title: Notify Teams Channel
+      stage: notify
+      type: freestyle
+      image: curlimages/curl:8.5.0
+      when:
+        condition:
+          all:
+            deploySucceeded: '"${{deploy_to_production.result}}" == "success"'
+      commands:
+        - |
+          curl -s -X POST "${{TEAMS_WEBHOOK_URL}}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"✅ Billing \`${{IMAGE_TAG}}\` deployed to production by ${{CF_BUILD_INITIATOR}}\"}"

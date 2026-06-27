@@ -1,6 +1,58 @@
-name: CRM Deployment
+name: Service Deployment Template
 
 on:
+  workflow_call:
+    inputs:
+      ECR_REPO:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "123456789.dkr.ecr.us-east-1.amazonaws.com/billing-app"
+      HELM_RELEASE_NAME:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "billing"
+      repo:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "myorg/billing-app"
+      image_name:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "billing-app"
+      deploy_to_staging_chart_name:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "charts/billing-app"
+      deploy_to_staging_release_name:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "billing-staging"
+      deploy_to_staging_replicaCount:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "3"
+      deploy_to_production_chart_name:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "charts/billing-app"
+      deploy_to_production_release_name:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "billing-production"
+      deploy_to_production_replicaCount:
+        description: 'Passed through from the calling instance workflow — TODO: wire into the step(s) below.'
+        required: false
+        type: string
+        default: "6"
   push:
     branches: [main]
   workflow_dispatch:
