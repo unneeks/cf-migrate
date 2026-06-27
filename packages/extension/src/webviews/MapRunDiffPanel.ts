@@ -275,41 +275,56 @@ body{
 .yd{color:var(--vscode-symbolIcon-operatorColor,#d4d4d4)}  /* dash -   */
 
 /* ── Step blocks ──────────────────────────────────────────────────── */
-.sb{position:relative;margin:4px 0}
+.sb{position:relative;margin:0}
 
+/* Gutter mark — thin confidence bar on the outer edge of each pane */
+.g-mark{
+  position:absolute;top:0;bottom:0;width:3px;pointer-events:none;opacity:.85;
+}
+.pane-cf  .g-mark{left:0;border-radius:0 2px 2px 0}
+.pane-gha .g-mark{right:0;border-radius:2px 0 0 2px}
+
+/* Step title bar — compact, minimal visual footprint */
 .st{
-  display:flex;align-items:center;gap:7px;
-  padding:5px 14px;cursor:pointer;user-select:none;
-  font-size:0.88em;
-  border-radius:0 3px 3px 0;
+  display:flex;align-items:center;gap:6px;
+  padding:3px 10px 3px 14px;cursor:pointer;user-select:none;
+  font-size:0.85em;
+  border-top:1px solid var(--vscode-panel-border);
 }
-.st:hover{filter:brightness(1.08)}
+.pane-gha .st{padding:3px 14px 3px 10px}
+.st:hover{background:var(--vscode-editor-hoverHighlightBackground,rgba(255,255,255,.04))}
 
-.st-label{
-  font-weight:700;flex:1;
+.st-seq{font-size:.76em;opacity:.45;font-weight:400;flex-shrink:0}
+
+/* Pill — only wraps the step name */
+.st-pill{
+  display:inline-block;
+  font-weight:600;font-size:.82em;
+  padding:1px 8px;border-radius:10px;border-width:1px;border-style:solid;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:60%;flex-shrink:1;min-width:0;
 }
-.st-seq{font-size:.78em;opacity:.55;font-weight:400;flex-shrink:0}
 
 .st-badge{
-  font-size:.72em;font-weight:700;padding:1px 7px;border-radius:8px;
-  text-transform:uppercase;letter-spacing:.03em;flex-shrink:0;
+  font-size:.70em;font-weight:700;padding:1px 6px;border-radius:8px;
+  text-transform:uppercase;letter-spacing:.03em;flex-shrink:0;margin-left:auto;
 }
-.st-badge.mapped   {background:rgba(60,200,120,.22);color:#3cc878}
-.st-badge.fallback {background:rgba(232,156,60,.22);color:#e89c3c}
-.st-badge.manual_review{background:rgba(220,80,80,.22);color:#dc5050}
+.st-badge.mapped   {background:rgba(60,200,120,.20);color:#3cc878}
+.st-badge.fallback {background:rgba(232,156,60,.20);color:#e89c3c}
+.st-badge.manual_review{background:rgba(220,80,80,.20);color:#dc5050}
 
 .col-btn{
   background:none;border:none;color:inherit;cursor:pointer;
-  font-size:.82em;padding:0 2px;opacity:.55;transition:transform .15s;flex-shrink:0;
+  font-size:.80em;padding:0 2px;opacity:.45;transition:transform .15s;flex-shrink:0;
 }
 .col-btn.collapsed{transform:rotate(-90deg)}
+.col-btn:hover{opacity:.9}
 
 .sb-body{}
 .sb-body.hidden{display:none}
 
-/* Selected step highlight */
-.sb.selected>.st{outline:1px solid currentColor;outline-offset:-1px}
+/* Selected step — subtle outline on the title bar */
+.sb.selected>.st{background:var(--vscode-editor-selectionHighlightBackground,rgba(255,255,255,.06))}
 
 /* ── SVG connector overlay ────────────────────────────────────────── */
 #conn-svg{
@@ -370,7 +385,7 @@ code{
   <svg id="conn-svg"></svg>
 
   <!-- CF pane -->
-  <div class="pane" id="cf-pane">
+  <div class="pane pane-cf" id="cf-pane">
     <div class="pane-hdr">
       <span>Codefresh</span>
       ${cfExists
@@ -383,7 +398,7 @@ code{
   </div>
 
   <!-- GHA pane -->
-  <div class="pane" id="gha-pane">
+  <div class="pane pane-gha" id="gha-pane">
     <div class="pane-hdr">
       <span>GitHub Actions</span>
       ${ghaExists
@@ -412,12 +427,21 @@ const STROKE = {
   fallback:      '#e89c3c',
   manual_review: '#dc5050',
 };
-const BG = {
-  mapped_high:   'rgba(60,200,120,.07)',
-  mapped_medium: 'rgba(230,180,60,.07)',
-  mapped_low:    'rgba(232,156,60,.09)',
-  fallback:      'rgba(232,156,60,.09)',
-  manual_review: 'rgba(220,80,80,.12)',
+// Pill border colours (medium opacity)
+const PILL_BD = {
+  mapped_high:   'rgba(60,200,120,.40)',
+  mapped_medium: 'rgba(230,180,60,.40)',
+  mapped_low:    'rgba(232,156,60,.45)',
+  fallback:      'rgba(232,156,60,.45)',
+  manual_review: 'rgba(220,80,80,.50)',
+};
+// Pill fill colours (very light)
+const PILL_BG = {
+  mapped_high:   'rgba(60,200,120,.10)',
+  mapped_medium: 'rgba(230,180,60,.10)',
+  mapped_low:    'rgba(232,156,60,.12)',
+  fallback:      'rgba(232,156,60,.12)',
+  manual_review: 'rgba(220,80,80,.14)',
 };
 
 function colorKey(m) {
@@ -471,18 +495,20 @@ function renderPanel(side, yaml, ranges) {
         const m   = bySeq[seq];
         const ck  = colorKey(m);
         const col = STROKE[ck];
-        const bg  = BG[ck];
         const lbl = side === 'cf' ? (m?.cf_title ?? 'step ' + seq) : (m?.gha_step ?? 'step ' + seq);
         const st  = m?.status ?? '';
-        html += '<div class="sb" id="' + side + '-sb-' + seq + '" data-seq="' + seq + '" '
-              + 'style="border-left:3px solid ' + col + ';background:' + bg + '">';
-        html += '<div class="st" id="' + side + '-st-' + seq + '" onclick="pick(' + seq + ')" '
-              + 'style="background:' + col.replace(')', ',0.18)').replace('rgb','rgba') + '">';
-        // collapse btn
+        html += '<div class="sb" id="' + side + '-sb-' + seq + '" data-seq="' + seq + '">';
+        // Gutter mark — thin confidence bar on the outer edge of each pane
+        html += '<div class="g-mark" style="background:' + col + '"></div>';
+        // Compact title bar — no full-width background
+        html += '<div class="st" id="' + side + '-st-' + seq + '" onclick="pick(' + seq + ')">';
         html += '<button class="col-btn" id="' + side + '-cb-' + seq + '" '
               + 'onclick="event.stopPropagation();fold(' + seq + ')" title="Collapse/expand">▾</button>';
         html += '<span class="st-seq">#' + seq + '</span>';
-        html += '<span class="st-label" style="color:' + col + '">' + esc(lbl) + '</span>';
+        // Pill: only wraps the step name
+        html += '<span class="st-pill" style="color:' + col
+              + ';background:' + PILL_BG[ck]
+              + ';border-color:' + PILL_BD[ck] + '">' + esc(lbl) + '</span>';
         if (st) html += '<span class="st-badge ' + st + '">' + esc(st.replace('_',' ')) + '</span>';
         html += '</div>';   // end .st
         html += '<div class="sb-body" id="' + side + '-bd-' + seq + '">';
@@ -552,7 +578,8 @@ function pick(seq) {
 }
 
 function fold(seq) {
-  const hidden = document.getElementById('cf-bd-' + seq)?.classList.contains('hidden');
+  const bd = document.getElementById('cf-bd-' + seq) ?? document.getElementById('gha-bd-' + seq);
+  const hidden = bd?.classList.contains('hidden') ?? false;
   ['cf','gha'].forEach(s => {
     document.getElementById(s + '-bd-' + seq)?.classList.toggle('hidden', !hidden);
     document.getElementById(s + '-cb-' + seq)?.classList.toggle('collapsed', !hidden);
