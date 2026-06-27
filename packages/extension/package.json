@@ -26,7 +26,8 @@
     "workspaceContains:**/codefresh.yml",
     "workspaceContains:**/codefresh.yaml",
     "workspaceContains:**/*.cf.yml",
-    "workspaceContains:**/.codefresh/**"
+    "workspaceContains:**/.codefresh/**",
+    "workspaceContains:**/*.map.json"
   ],
   "extensionDependencies": [
     "github.copilot-chat"
@@ -91,6 +92,18 @@
         "command": "cf-migrate.setActivePipeline",
         "title": "CF Migrate: Set Active Pipeline",
         "category": "CF Migrate"
+      },
+      {
+        "command": "cf-migrate.refreshMapRuns",
+        "title": "CF Migrate: Refresh Map Runs",
+        "category": "CF Migrate",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cf-migrate.openMapRun",
+        "title": "CF Migrate: Open Map Run Diff",
+        "category": "CF Migrate",
+        "icon": "$(diff)"
       }
     ],
     "viewsContainers": {
@@ -111,6 +124,10 @@
         {
           "id": "cf-migrate.kb",
           "name": "Knowledge Base"
+        },
+        {
+          "id": "cf-migrate.mapRuns",
+          "name": "Map Runs"
         }
       ]
     },
@@ -129,6 +146,11 @@
         {
           "command": "cf-migrate.openKB",
           "when": "view == cf-migrate.kb",
+          "group": "navigation"
+        },
+        {
+          "command": "cf-migrate.refreshMapRuns",
+          "when": "view == cf-migrate.mapRuns",
           "group": "navigation"
         }
       ],
@@ -152,11 +174,20 @@
           "command": "cf-migrate.generate",
           "when": "view == cf-migrate.pipelines && viewItem == pipeline",
           "group": "phase@3"
+        },
+        {
+          "command": "cf-migrate.openMapRun",
+          "when": "view == cf-migrate.mapRuns && viewItem == maprun-entry",
+          "group": "inline"
         }
       ],
       "commandPalette": [
         {
           "command": "cf-migrate.setActivePipeline",
+          "when": "false"
+        },
+        {
+          "command": "cf-migrate.openMapRun",
           "when": "false"
         }
       ]

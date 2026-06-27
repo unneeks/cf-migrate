@@ -19,9 +19,12 @@ import { registerCopilotParticipant } from './chat/CopilotParticipant';
 import { DecorationProvider } from './decorations/DecorationProvider';
 import { CFMigrateHoverProvider } from './hovers/HoverProvider';
 import { KBTreeProvider } from './views/KBTreeProvider';
+import { MapRunTreeProvider } from './views/MapRunTreeProvider';
 import { PipelineTreeProvider } from './views/PipelineTreeProvider';
 import { StatusBarManager } from './statusbar/StatusBarManager';
+import { MapRunDiffPanel } from './webviews/MapRunDiffPanel';
 import { createServices, type ExtensionServices } from './services/ExtensionServices';
+import type { MapRunEntry } from './scanners/MapRunScanner';
 
 let currentServices: ExtensionServices | undefined;
 
@@ -34,10 +37,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Views (always registered so the activity-bar icon is functional) ─────
   const pipelineProvider = new PipelineTreeProvider(servicesGetter);
   const kbProvider = new KBTreeProvider(servicesGetter);
+  const mapRunProvider = new MapRunTreeProvider();
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('cf-migrate.pipelines', pipelineProvider),
     vscode.window.registerTreeDataProvider('cf-migrate.kb', kbProvider),
+    vscode.window.registerTreeDataProvider('cf-migrate.mapRuns', mapRunProvider),
   );
+
+  // ── Map Run commands ──────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cf-migrate.refreshMapRuns', () => {
+      void mapRunProvider.refresh();
+    }),
+    vscode.commands.registerCommand('cf-migrate.openMapRun', (entry: MapRunEntry) => {
+      void MapRunDiffPanel.show(context, entry);
+    }),
+  );
+
+  // Eagerly populate the map-run tree on activation.
+  void mapRunProvider.refresh();
 
   // ── Editor providers ──────────────────────────────────────────────────────
   const codeLens = new CFMigrateCodeLensProvider(servicesGetter);
