@@ -1,0 +1,241 @@
+{
+  "version": "1.0",
+  "kind": "pipeline",
+  "metadata": {
+    "id": "a3f1c9e2b847d650123f9abc",
+    "name": "PROD/crm-deployment",
+    "project": "PROD",
+    "projectId": "63a1f9b2e4c7d80012345678",
+    "accountId": "5e3b7c1a2d4f890011223344",
+    "revision": 7,
+    "created_at": "2025-11-03T09:14:22.000Z",
+    "updated_at": "2026-06-21T11:47:05.000Z",
+    "isPublic": false,
+    "concurrency": 1,
+    "labels": {
+      "tags": ["production", "crm"]
+    },
+    "terminationPolicy": [
+      { "type": "branch", "event": "onCreate" }
+    ],
+    "deprecatedNotifyOnSuccess": false,
+    "usesInternalRegistry": false,
+    "originalYamlString": "version: \"1.0\"\nkind: pipeline\nmetadata:\n  name: PROD/crm-deployment\n  project: PROD\n  labels:\n    tags:\n      - production\n      - crm\n\nspec:\n  stages:\n    - prepare\n    - build\n    - test\n    - staging\n    - production\n    - notify\n\n  steps:\n\n    # ── PREPARE ──────────────────────────────────────────────────────────────\n\n    set_default_variables:\n      title: Set Default Variables\n      stage: prepare\n      type: freestyle\n      image: alpine:3.18\n      commands:\n        - cf_export IMAGE_TAG=${CF_SHORT_REVISION:-latest}\n        - cf_export ECR_REPO=123456789.dkr.ecr.us-east-1.amazonaws.com/crm-app\n        - cf_export CLUSTER_NAME=prod-eks-cluster\n        - cf_export HELM_RELEASE_NAME=crm\n\n    aws_oidc_authoriser:\n      title: AWS OIDC Authoriser\n      stage: prepare\n      type: freestyle\n      image: amazon/aws-cli:2.15.0\n      environment:\n        - AWS_ROLE_ARN=${{AWS_OIDC_ROLE_ARN}}\n        - AWS_WEB_IDENTITY_TOKEN_FILE=/var/run/secrets/oidc/token\n      commands:\n        - aws sts assume-role-with-web-identity\n            --role-arn $AWS_ROLE_ARN\n            --role-session-name codefresh-ci\n            --web-identity-token file://$AWS_WEB_IDENTITY_TOKEN_FILE\n            --duration-seconds 3600\n            --output json > /tmp/aws-creds.json\n        - export AWS_ACCESS_KEY_ID=$(jq -r .Credentials.AccessKeyId /tmp/aws-creds.json)\n        - cf_export AWS_ACCESS_KEY_ID\n        - cf_export AWS_SECRET_ACCESS_KEY=$(jq -r .Credentials.SecretAccessKey /tmp/aws-creds.json)\n        - cf_export AWS_SESSION_TOKEN=$(jq -r .Credentials.SessionToken /tmp/aws-creds.json)\n\n    git_clone:\n      title: Clone Repository\n      stage: prepare\n      type: git-clone\n      repo: myorg/crm-app\n      revision: ${{CF_REVISION}}\n      git: github-connection\n\n    # ── BUILD ─────────────────────────────────────────────────────────────────\n\n    build_docker_image:\n      title: Build Docker Image\n      stage: build\n      type: build\n      image_name: crm-app\n      tag: ${{IMAGE_TAG}}\n      dockerfile: Dockerfile\n      build_arguments:\n        - NODE_ENV=production\n        - APP_VERSION=${{IMAGE_TAG}}\n      no_cache: false\n\n    push_to_ecr:\n      title: Push to ECR\n      stage: build\n      type: push\n      candidate: ${{build_docker_image}}\n      tags:\n        - ${{IMAGE_TAG}}\n        - latest\n      registry: ecr-registry\n\n    # ── TEST ──────────────────────────────────────────────────────────────────\n\n    run_unit_tests:\n      title: Run Unit Tests\n      stage: test\n      type: freestyle\n      image: node:20-alpine\n      working_directory: ${{git_clone}}\n      commands:\n        - npm ci --prefer-offline\n        - npm test -- --coverage --ci\n        - npm run test:report\n\n    code_quality_scan:\n      title: Code Quality Scan\n      stage: test\n      type: freestyle\n      image: sonarsource/sonar-scanner-cli:5\n      environment:\n        - SONAR_HOST_URL=${{SONAR_HOST_URL}}\n        - SONAR_TOKEN=${{SONAR_TOKEN}}\n        - SONAR_PROJECT_VERSION=${{IMAGE_TAG}}\n      commands:\n        - sonar-scanner\n            -Dsonar.projectKey=crm-app\n            -Dsonar.sources=src\n            -Dsonar.tests=test\n            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info\n            -Dsonar.qualitygate.wait=true\n\n    integration_tests:\n      title: Integration Tests\n      stage: test\n      type: freestyle\n      image: node:20-alpine\n      working_directory: ${{git_clone}}\n      commands:\n        - npm run test:integration -- --baseUrl=${{STAGING_URL}} --reporter=junit\n      retry:\n        maxAttempts: 3\n        delay: 30\n\n    # ── STAGING ───────────────────────────────────────────────────────────────\n\n    deploy_to_staging:\n      title: Deploy to Staging\n      stage: staging\n      type: deploy\n      kind: helm\n      helm_version: 3.12.0\n      chart_name: charts/crm-app\n      release_name: crm-staging\n      kube_context: staging-eks-cluster\n      namespace: staging\n      set:\n        - image.tag=${{IMAGE_TAG}}\n        - image.repository=${{ECR_REPO}}\n        - replicaCount=2\n\n    smoke_tests:\n      title: Smoke Tests\n      stage: staging\n      type: freestyle\n      image: postman/newman:6-alpine\n      commands:\n        - newman run collections/smoke-tests.json\n            --env-var BASE_URL=${{STAGING_URL}}\n            --env-var API_KEY=${{STAGING_API_KEY}}\n            --reporters cli,junit\n            --reporter-junit-export results/smoke.xml\n\n    # ── PRODUCTION ────────────────────────────────────────────────────────────\n\n    deploy_to_production:\n      title: Deploy to Production\n      stage: production\n      type: deploy\n      kind: helm\n      helm_version: 3.12.0\n      chart_name: charts/crm-app\n      release_name: crm-production\n      kube_context: prod-eks-cluster\n      namespace: production\n      set:\n        - image.tag=${{IMAGE_TAG}}\n        - image.repository=${{ECR_REPO}}\n        - replicaCount=5\n      when:\n        branch:\n          only:\n            - main\n\n    # ── NOTIFY ────────────────────────────────────────────────────────────────\n\n    notify_teams:\n      title: Notify Teams Channel\n      stage: notify\n      type: freestyle\n      image: curlimages/curl:8.5.0\n      when:\n        condition:\n          all:\n            deploySucceeded: '\"${{deploy_to_production.result}}\" == \"success\"'\n      commands:\n        - |\n          curl -s -X POST \"${{TEAMS_WEBHOOK_URL}}\" \\\n            -H \"Content-Type: application/json\" \\\n            -d \"{\\\"text\\\":\\\"✅ CRM \\`${{IMAGE_TAG}}\\` deployed to production by ${{CF_BUILD_INITIATOR}}\\\"}\"\n"
+  },
+  "spec": {
+    "triggers": [
+      {
+        "type": "git",
+        "repo": "myorg/crm-app",
+        "events": ["push.heads"],
+        "branchRegex": "/^main$/gi",
+        "branchRegexInput": "regex",
+        "provider": "github",
+        "name": "myorg_crm-app_push",
+        "disabled": false,
+        "options": {
+          "noCI": false,
+          "resetVolume": false
+        }
+      },
+      {
+        "type": "git",
+        "repo": "myorg/crm-app",
+        "events": ["pullrequest.opened", "pullrequest.synchronize"],
+        "branchRegex": "/.*/gi",
+        "branchRegexInput": "regex",
+        "provider": "github",
+        "name": "myorg_crm-app_pr",
+        "disabled": false
+      }
+    ],
+    "contexts": ["aws-prod-context", "sonar-context"],
+    "variables": [
+      { "key": "AWS_OIDC_ROLE_ARN",  "value": "arn:aws:iam::123456789:role/codefresh-oidc-prod", "encrypted": false },
+      { "key": "SONAR_HOST_URL",     "value": "https://sonar.internal.myorg.com",               "encrypted": false },
+      { "key": "SONAR_TOKEN",        "value": "",                                                "encrypted": true  },
+      { "key": "STAGING_URL",        "value": "https://crm-staging.internal.myorg.com",          "encrypted": false },
+      { "key": "STAGING_API_KEY",    "value": "",                                                "encrypted": true  },
+      { "key": "TEAMS_WEBHOOK_URL",  "value": "",                                                "encrypted": true  }
+    ],
+    "stages": ["prepare", "build", "test", "staging", "production", "notify"],
+    "mode": "sequential",
+    "failFast": true,
+    "hooks": {
+      "on_fail": {
+        "steps": {
+          "notify_failure": {
+            "title": "Notify on Failure",
+            "type": "freestyle",
+            "image": "curlimages/curl:8.5.0",
+            "commands": [
+              "curl -s -X POST \"${{TEAMS_WEBHOOK_URL}}\" -H \"Content-Type: application/json\" -d \"{\\\"text\\\":\\\"❌ CRM build ${{CF_BUILD_ID}} failed at ${{CF_STEP_NAME}}\\\"}\" "
+            ]
+          }
+        }
+      }
+    },
+    "steps": {
+      "set_default_variables": {
+        "title": "Set Default Variables",
+        "stage": "prepare",
+        "type": "freestyle",
+        "image": "alpine:3.18",
+        "commands": [
+          "cf_export IMAGE_TAG=${CF_SHORT_REVISION:-latest}",
+          "cf_export ECR_REPO=123456789.dkr.ecr.us-east-1.amazonaws.com/crm-app",
+          "cf_export CLUSTER_NAME=prod-eks-cluster",
+          "cf_export HELM_RELEASE_NAME=crm"
+        ]
+      },
+      "aws_oidc_authoriser": {
+        "title": "AWS OIDC Authoriser",
+        "stage": "prepare",
+        "type": "freestyle",
+        "image": "amazon/aws-cli:2.15.0",
+        "environment": [
+          "AWS_ROLE_ARN=${{AWS_OIDC_ROLE_ARN}}",
+          "AWS_WEB_IDENTITY_TOKEN_FILE=/var/run/secrets/oidc/token"
+        ],
+        "commands": [
+          "aws sts assume-role-with-web-identity --role-arn $AWS_ROLE_ARN --role-session-name codefresh-ci --web-identity-token file://$AWS_WEB_IDENTITY_TOKEN_FILE --duration-seconds 3600 --output json > /tmp/aws-creds.json",
+          "export AWS_ACCESS_KEY_ID=$(jq -r .Credentials.AccessKeyId /tmp/aws-creds.json)",
+          "cf_export AWS_ACCESS_KEY_ID",
+          "cf_export AWS_SECRET_ACCESS_KEY=$(jq -r .Credentials.SecretAccessKey /tmp/aws-creds.json)",
+          "cf_export AWS_SESSION_TOKEN=$(jq -r .Credentials.SessionToken /tmp/aws-creds.json)"
+        ]
+      },
+      "git_clone": {
+        "title": "Clone Repository",
+        "stage": "prepare",
+        "type": "git-clone",
+        "repo": "myorg/crm-app",
+        "revision": "${{CF_REVISION}}",
+        "git": "github-connection"
+      },
+      "build_docker_image": {
+        "title": "Build Docker Image",
+        "stage": "build",
+        "type": "build",
+        "image_name": "crm-app",
+        "tag": "${{IMAGE_TAG}}",
+        "dockerfile": "Dockerfile",
+        "build_arguments": [
+          "NODE_ENV=production",
+          "APP_VERSION=${{IMAGE_TAG}}"
+        ],
+        "no_cache": false
+      },
+      "push_to_ecr": {
+        "title": "Push to ECR",
+        "stage": "build",
+        "type": "push",
+        "candidate": "${{build_docker_image}}",
+        "tags": ["${{IMAGE_TAG}}", "latest"],
+        "registry": "ecr-registry"
+      },
+      "run_unit_tests": {
+        "title": "Run Unit Tests",
+        "stage": "test",
+        "type": "freestyle",
+        "image": "node:20-alpine",
+        "working_directory": "${{git_clone}}",
+        "commands": [
+          "npm ci --prefer-offline",
+          "npm test -- --coverage --ci",
+          "npm run test:report"
+        ]
+      },
+      "code_quality_scan": {
+        "title": "Code Quality Scan",
+        "stage": "test",
+        "type": "freestyle",
+        "image": "sonarsource/sonar-scanner-cli:5",
+        "environment": [
+          "SONAR_HOST_URL=${{SONAR_HOST_URL}}",
+          "SONAR_TOKEN=${{SONAR_TOKEN}}",
+          "SONAR_PROJECT_VERSION=${{IMAGE_TAG}}"
+        ],
+        "commands": [
+          "sonar-scanner -Dsonar.projectKey=crm-app -Dsonar.sources=src -Dsonar.tests=test -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.qualitygate.wait=true"
+        ]
+      },
+      "integration_tests": {
+        "title": "Integration Tests",
+        "stage": "test",
+        "type": "freestyle",
+        "image": "node:20-alpine",
+        "working_directory": "${{git_clone}}",
+        "commands": [
+          "npm run test:integration -- --baseUrl=${{STAGING_URL}} --reporter=junit"
+        ],
+        "retry": {
+          "maxAttempts": 3,
+          "delay": 30
+        }
+      },
+      "deploy_to_staging": {
+        "title": "Deploy to Staging",
+        "stage": "staging",
+        "type": "deploy",
+        "kind": "helm",
+        "helm_version": "3.12.0",
+        "chart_name": "charts/crm-app",
+        "release_name": "crm-staging",
+        "kube_context": "staging-eks-cluster",
+        "namespace": "staging",
+        "set": [
+          "image.tag=${{IMAGE_TAG}}",
+          "image.repository=${{ECR_REPO}}",
+          "replicaCount=2"
+        ]
+      },
+      "smoke_tests": {
+        "title": "Smoke Tests",
+        "stage": "staging",
+        "type": "freestyle",
+        "image": "postman/newman:6-alpine",
+        "commands": [
+          "newman run collections/smoke-tests.json --env-var BASE_URL=${{STAGING_URL}} --env-var API_KEY=${{STAGING_API_KEY}} --reporters cli,junit --reporter-junit-export results/smoke.xml"
+        ]
+      },
+      "deploy_to_production": {
+        "title": "Deploy to Production",
+        "stage": "production",
+        "type": "deploy",
+        "kind": "helm",
+        "helm_version": "3.12.0",
+        "chart_name": "charts/crm-app",
+        "release_name": "crm-production",
+        "kube_context": "prod-eks-cluster",
+        "namespace": "production",
+        "set": [
+          "image.tag=${{IMAGE_TAG}}",
+          "image.repository=${{ECR_REPO}}",
+          "replicaCount=5"
+        ],
+        "when": {
+          "branch": {
+            "only": ["main"]
+          }
+        }
+      },
+      "notify_teams": {
+        "title": "Notify Teams Channel",
+        "stage": "notify",
+        "type": "freestyle",
+        "image": "curlimages/curl:8.5.0",
+        "when": {
+          "condition": {
+            "all": {
+              "deploySucceeded": "\"${{deploy_to_production.result}}\" == \"success\""
+            }
+          }
+        },
+        "commands": [
+          "curl -s -X POST \"${{TEAMS_WEBHOOK_URL}}\" -H \"Content-Type: application/json\" -d \"{\\\"text\\\":\\\"✅ CRM `${{IMAGE_TAG}}` deployed to production by ${{CF_BUILD_INITIATOR}}\\\"}\""
+        ]
+      }
+    }
+  }
+}
