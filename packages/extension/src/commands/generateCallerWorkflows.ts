@@ -17,6 +17,7 @@ import {
   ensureWorkflowCallTrigger,
   type RawVariableDiff,
 } from '../generation/ReusableCallerGenerator';
+import { logger } from '../services/Logger';
 
 export async function runGenerateCallerWorkflows(group: TemplateGroup): Promise<void> {
   const root = group.template.workspaceFolder.uri.fsPath;
@@ -33,7 +34,8 @@ export async function runGenerateCallerWorkflows(group: TemplateGroup): Promise<
       fs.readFile(templateWorkflowPath, 'utf8'),
     ]);
   } catch (err) {
-    void vscode.window.showErrorMessage(`Generate Caller Workflows: could not read template files: ${String(err)}`);
+    logger.error(`Generate Caller Workflows: could not read template files for "${templateMeta.pipeline_name}"`, err);
+    void vscode.window.showErrorMessage(`Generate Caller Workflows: could not read template files: ${String(err)}`, 'Show Logs').then((c) => { if (c) logger.show(); });
     return;
   }
 
@@ -49,6 +51,7 @@ export async function runGenerateCallerWorkflows(group: TemplateGroup): Promise<
       const instanceSourceYaml = await fs.readFile(instanceSourcePath, 'utf8');
       perInstanceDiffs.set(instance.filePath, diffPipelineVariablesRaw(templateSourceYaml, instanceSourceYaml));
     } catch (err) {
+      logger.warn(`Generate Caller Workflows: skipping ${instance.data.meta.pipeline_name} — could not read its source file`, err);
       void vscode.window.showWarningMessage(
         `Generate Caller Workflows: skipping ${instance.data.meta.pipeline_name} — could not read its source file: ${String(err)}`,
       );
@@ -58,6 +61,13 @@ export async function runGenerateCallerWorkflows(group: TemplateGroup): Promise<
   const allDiffs = [...perInstanceDiffs.values()].flat();
   const namesByPath = assignVariableNames(allDiffs);
   const variableNames = [...new Set(namesByPath.values())];
+  if (variableNames.length === 0) {
+    logger.warn(
+      `Generate Caller Workflows: detected 0 differing variables between "${templateMeta.pipeline_name}" and its instances — ` +
+      `callers will have no with: inputs. This usually means the instances' CF YAML differs only in free-text shell ` +
+      `commands or array elements, which diffPipelineVariables intentionally doesn't surface as named inputs.`,
+    );
+  }
   const defaults: Record<string, unknown> = {};
   for (const d of allDiffs) {
     const name = namesByPath.get(d.path)!;

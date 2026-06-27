@@ -107,6 +107,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "cf-migrate.showLogs",
+        "title": "CF Migrate: Show Logs",
+        "category": "CF Migrate",
+        "icon": "$(output)"
+      },
+      {
         "command": "cf-migrate.setActivePipeline",
         "title": "CF Migrate: Set Active Pipeline",
         "category": "CF Migrate"

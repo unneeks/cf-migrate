@@ -43,6 +43,8 @@ import {
   ValidationAgent,
 } from '@cf-migrate/agents';
 
+import { logger } from './Logger';
+
 export interface ExtensionServices {
   workspaceFolder: vscode.WorkspaceFolder;
   orgSettings: OrgSettings;
@@ -104,9 +106,11 @@ export async function createServices(
     llmAvailable = await provider.isAvailable();
     if (llmAvailable) {
       llm = provider;
+    } else {
+      logger.warn('Copilot reported no available chat models at startup — LLM features will use the deterministic fallback until this is retried.');
     }
-  } catch {
-    // VSCode LM API not ready — will retry on first user-initiated LLM call.
+  } catch (err) {
+    logger.warn('VSCode Language Model API was not ready at startup — will retry on first user-initiated LLM call.', err);
   }
 
   const deterministicOnly =
@@ -218,7 +222,11 @@ async function loadOrgIndex(workspacePath: string): Promise<OrgWorkflowIndex> {
     const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(indexPath));
     const parsed = JSON.parse(Buffer.from(raw).toString('utf8')) as OrgWorkflowIndex;
     return parsed;
-  } catch {
+  } catch (err) {
+    // FileNotFound is the normal first-run case (no index built yet) — not worth logging.
+    if ((err as vscode.FileSystemError).code !== 'FileNotFound') {
+      logger.warn(`Failed to load ${indexPath} — falling back to an empty org index`, err);
+    }
     return emptyIndex();
   }
 }

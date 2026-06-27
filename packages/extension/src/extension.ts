@@ -27,6 +27,7 @@ import { createServices, type ExtensionServices } from './services/ExtensionServ
 import type { MapRunEntry } from './scanners/MapRunScanner';
 import { runGenerateCallerWorkflows } from './commands/generateCallerWorkflows';
 import type { TemplateGroup } from './utils/TemplateGrouping';
+import { logger } from './services/Logger';
 
 let currentServices: ExtensionServices | undefined;
 
@@ -125,9 +126,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // KB tree population happens after services exist.
       void kbProvider.refresh();
     } catch (err) {
-      vscode.window.showErrorMessage(
+      logger.error('CF Migrate failed to initialise', err);
+      void vscode.window.showErrorMessage(
         `CF Migrate failed to initialise: ${(err as Error).message}`,
-      );
+        'Show Logs',
+      ).then((choice) => { if (choice) logger.show(); });
     }
   } else {
     statusBar.refresh();

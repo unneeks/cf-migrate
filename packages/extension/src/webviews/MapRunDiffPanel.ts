@@ -23,6 +23,7 @@ import type { MapRunEntry } from '../scanners/MapRunScanner';
 import type { ExtensionServices } from '../services/ExtensionServices';
 import { buildTopologyGraphs } from '../generation/buildTopologyGraphs';
 import { renderTopologyGraph, type TopoGraph } from '../generation/TopologyDiagram';
+import { logger } from '../services/Logger';
 
 interface StepRange { start: number; end: number }
 
@@ -113,7 +114,8 @@ export class MapRunDiffPanel {
     if (!raw) return { version: 1, pipeline_name: this.entry.data.meta.pipeline_name, edits: [] };
     try {
       return JSON.parse(raw) as EditLog;
-    } catch {
+    } catch (err) {
+      logger.warn(`${this.editsFilePath()} is not valid JSON — starting a fresh edit log (existing edit history in this file is not recovered)`, err);
       return { version: 1, pipeline_name: this.entry.data.meta.pipeline_name, edits: [] };
     }
   }
@@ -165,7 +167,7 @@ export class MapRunDiffPanel {
 
       await this.render();
     } catch (err) {
-      void vscode.window.showErrorMessage(`Failed to save ${data.meta.target_workflow}: ${String(err)}`);
+      showPanelError(`Failed to save ${data.meta.target_workflow}`, err);
     }
   }
 
@@ -242,7 +244,7 @@ export class MapRunDiffPanel {
             `Learned rule "${rule.rule_id}" — added to ${path.basename(this.entry.data.meta.mapping_source)} and knowledge base (${kbItem.id}).`,
           );
         } catch (err) {
-          void vscode.window.showErrorMessage(`Failed to learn rule: ${String(err)}`);
+          showPanelError('Failed to learn rule', err);
         }
       },
     );
@@ -256,7 +258,9 @@ export class MapRunDiffPanel {
       try {
         const parsed = parseYaml(raw);
         if (Array.isArray(parsed)) rules = parsed;
-      } catch {
+        else logger.warn(`${full} does not contain a YAML array at the top level — appending into a fresh list instead of merging with its existing content`);
+      } catch (err) {
+        logger.warn(`${full} is not valid YAML — appending into a fresh list instead of merging with its existing content`, err);
         rules = [];
       }
     }
@@ -274,6 +278,21 @@ export class MapRunDiffPanel {
     const { data, workspaceFolder } = this.entry;
     const root = workspaceFolder.uri.fsPath;
 
+    const cfExists  = await exists(path.resolve(root, data.meta.source_file));
+    const ghaExists = await exists(path.resolve(root, data.meta.target_workflow));
+    if (!cfExists) {
+      logger.warn(
+        `Map run "${data.meta.pipeline_name}": source_file not found on disk, showing a synthesised placeholder instead`,
+        { source_file: data.meta.source_file, resolved: path.resolve(root, data.meta.source_file) },
+      );
+    }
+    if (!ghaExists) {
+      logger.warn(
+        `Map run "${data.meta.pipeline_name}": target_workflow not found on disk, showing a synthesised placeholder instead`,
+        { target_workflow: data.meta.target_workflow, resolved: path.resolve(root, data.meta.target_workflow) },
+      );
+    }
+
     const cfYaml  = await readFile(path.resolve(root, data.meta.source_file))
                  ?? generateCFYaml(data.mappings);
     const ghaYaml = await readFile(path.resolve(root, data.meta.target_workflow))
@@ -281,9 +300,7 @@ export class MapRunDiffPanel {
 
     const cfRanges  = parseCFRanges(cfYaml,  data.mappings);
     const ghaRanges = parseGHARanges(ghaYaml, data.mappings);
-
-    const cfExists  = await exists(path.resolve(root, data.meta.source_file));
-    const ghaExists = await exists(path.resolve(root, data.meta.target_workflow));
+    this.logUnmatchedSteps(cfRanges, ghaRanges);
 
     const cfCtx  = parseCfContext(cfYaml);
     const ghaCtx = parseGhaContext(ghaYaml);
@@ -303,6 +320,28 @@ export class MapRunDiffPanel {
     MapRunDiffPanel.panels.delete(this.entry.filePath);
     this.panel.dispose();
     for (const d of this.disposables) d.dispose();
+  }
+
+  // Catches the exact failure mode that prompted adding this logger: a mapping whose
+  // cf_step/gha_step text doesn't match anything found in the actual source/workflow files
+  // produces zero step pills and zero connector lines, with no visible error anywhere — it
+  // just looks broken. This surfaces precisely which mappings failed to resolve and why.
+  private logUnmatchedSteps(cfRanges: Record<number, StepRange>, ghaRanges: Record<number, StepRange>): void {
+    const { mappings, meta } = this.entry.data;
+    const unmatchedCf = mappings.filter((m) => !(m.seq in cfRanges)).map((m) => `#${m.seq} cf_step="${m.cf_step}"`);
+    const unmatchedGha = mappings.filter((m) => !(m.seq in ghaRanges)).map((m) => `#${m.seq} gha_step="${m.gha_step}"`);
+    if (unmatchedCf.length > 0) {
+      logger.warn(
+        `Map run "${meta.pipeline_name}": ${unmatchedCf.length}/${mappings.length} CF step(s) not found in ${meta.source_file} — no pill/connector for these`,
+        unmatchedCf,
+      );
+    }
+    if (unmatchedGha.length > 0) {
+      logger.warn(
+        `Map run "${meta.pipeline_name}": ${unmatchedGha.length}/${mappings.length} GHA step(s) not found in ${meta.target_workflow} — no pill/connector for these`,
+        unmatchedGha,
+      );
+    }
   }
 }
 
@@ -419,7 +458,11 @@ function parseGHARanges(yaml: string, mappings: MapRunMapping[]): Record<number,
 
 function parseCfContext(yaml: string): CfContext {
   let doc: Record<string, unknown> = {};
-  try { doc = (parseYaml(yaml) as Record<string, unknown>) ?? {}; } catch { doc = {}; }
+  try {
+    doc = (parseYaml(yaml) as Record<string, unknown>) ?? {};
+  } catch (err) {
+    logger.warn('Failed to parse Codefresh source YAML for the Pipeline Context section — it will show as empty', err);
+  }
   const spec = (doc.spec as Record<string, unknown>) ?? {};
 
   const triggers = Array.isArray(spec.triggers) ? (spec.triggers as CfTrigger[]) : [];
@@ -451,7 +494,11 @@ function parseCfContext(yaml: string): CfContext {
 
 function parseGhaContext(yaml: string): GhaContext {
   let doc: Record<string, unknown> = {};
-  try { doc = (parseYaml(yaml) as Record<string, unknown>) ?? {}; } catch { doc = {}; }
+  try {
+    doc = (parseYaml(yaml) as Record<string, unknown>) ?? {};
+  } catch (err) {
+    logger.warn('Failed to parse GHA workflow YAML for the Triggers & Environment section — it will show as empty', err);
+  }
   const on  = (doc.on  && typeof doc.on  === 'object') ? (doc.on  as Record<string, unknown>) : {};
   const env = (doc.env && typeof doc.env === 'object') ? (doc.env as Record<string, unknown>) : {};
 
@@ -1293,4 +1340,11 @@ function esc(s: string | undefined | null): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function showPanelError(summary: string, err: unknown): void {
+  logger.error(summary, err);
+  void vscode.window.showErrorMessage(`${summary}: ${String(err)}`, 'Show Logs').then((choice) => {
+    if (choice === 'Show Logs') logger.show();
+  });
 }

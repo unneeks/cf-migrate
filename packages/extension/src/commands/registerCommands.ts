@@ -20,6 +20,7 @@ import {
   setCachedAnalysis,
   setCachedPlan,
 } from '../services/AnalysisPlanCache';
+import { logger } from '../services/Logger';
 
 export interface CommandContext {
   context: vscode.ExtensionContext;
@@ -46,6 +47,7 @@ export function registerCommands(cmdCtx: CommandContext): vscode.Disposable[] {
     vscode.commands.registerCommand('cf-migrate.indexGHA', () => runIndexGHA(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.showReport', () => runShowReport(cmdCtx)),
     vscode.commands.registerCommand('cf-migrate.selectLearnRuleModel', () => runSelectLearnRuleModel(cmdCtx)),
+    vscode.commands.registerCommand('cf-migrate.showLogs', () => logger.show()),
   );
 
   return d;
@@ -72,7 +74,7 @@ async function runDiscover(ctx: CommandContext): Promise<void> {
       `CF Migrate: discovered ${s.session.inventory?.pipelines.length ?? 0} pipeline(s).`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`Discovery failed: ${(err as Error).message}`);
+    showError('Discovery failed', err);
   }
   ctx.onChange();
 }
@@ -137,7 +139,7 @@ async function runAnalyse(ctx: CommandContext, force: boolean): Promise<void> {
   } catch (err) {
     s.session.phase = 'failed';
     s.session.lastError = { message: (err as Error).message, phase: 'analysing' };
-    vscode.window.showErrorMessage(`Analysis failed: ${(err as Error).message}`);
+    showError('Analysis failed', err);
   }
   ctx.onChange();
 }
@@ -198,7 +200,7 @@ async function runPlan(ctx: CommandContext, force: boolean): Promise<void> {
   } catch (err) {
     s.session.phase = 'failed';
     s.session.lastError = { message: (err as Error).message, phase: 'planning' };
-    vscode.window.showErrorMessage(`Planning failed: ${(err as Error).message}`);
+    showError('Planning failed', err);
   }
   ctx.onChange();
 }
@@ -257,7 +259,7 @@ async function runGenerate(ctx: CommandContext): Promise<void> {
   } catch (err) {
     s.session.phase = 'failed';
     s.session.lastError = { message: (err as Error).message, phase: 'generating' };
-    vscode.window.showErrorMessage(`Generation failed: ${(err as Error).message}`);
+    showError('Generation failed', err);
   }
   ctx.onChange();
 }
@@ -295,7 +297,7 @@ async function runValidate(ctx: CommandContext): Promise<void> {
   } catch (err) {
     s.session.phase = 'failed';
     s.session.lastError = { message: (err as Error).message, phase: 'validating' };
-    vscode.window.showErrorMessage(`Validation failed: ${(err as Error).message}`);
+    showError('Validation failed', err);
   }
   ctx.onChange();
 }
@@ -493,4 +495,14 @@ async function ensureActivePipeline(s: ExtensionServices): Promise<PipelineFile 
 
 function noWorkspace(): void {
   vscode.window.showWarningMessage('CF Migrate: open a folder containing your Codefresh pipeline first.');
+}
+
+/** Logs the full error (with stack) to the "CF Migrate" output channel and shows a toast
+ *  with a one-click way to open it — the message alone is rarely enough to diagnose a
+ *  failure, and console.error from an installed (non-debug) extension is invisible. */
+function showError(summary: string, err: unknown): void {
+  logger.error(summary, err);
+  void vscode.window.showErrorMessage(`${summary}: ${(err as Error).message}`, 'Show Logs').then((choice) => {
+    if (choice === 'Show Logs') logger.show();
+  });
 }
