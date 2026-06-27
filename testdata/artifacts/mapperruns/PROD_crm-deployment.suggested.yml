@@ -1,0 +1,198 @@
+name: CRM Deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Override image tag (defaults to short SHA)'
+        required: false
+
+env:
+  ECR_REPO: 123456789.dkr.ecr.us-east-1.amazonaws.com/crm-app
+
+jobs:
+  # ── PREPARE ───────────────────────────────────────────────────────────────
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      # [seq:1] Set Default Variables — fallback: pure shell/cf_export, no direct pattern
+      - name: Set default variables
+        id: vars
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag || github.sha }}"
+          IMAGE_TAG="${IMAGE_TAG:0:7}"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "ECR_REPO=${{ env.ECR_REPO }}" >> "$GITHUB_ENV"
+          echo "CLUSTER_NAME=prod-eks-cluster" >> "$GITHUB_ENV"
+          echo "HELM_RELEASE_NAME=crm" >> "$GITHUB_ENV"
+
+      # [seq:2] AWS OIDC Authoriser — MANUAL REVIEW: custom assume-role-with-web-identity
+      - name: AWS OIDC Authoriser (MANUAL REVIEW)
+        run: |
+          # TODO: Replace with aws-actions/configure-aws-credentials@v4 using OIDC federation.
+          # The CF step manually called assume-role-with-web-identity; GHA provides a
+          # built-in OIDC token via the id-token permission — no custom logic needed.
+          #
+          # Example replacement:
+          #   uses: aws-actions/configure-aws-credentials@v4
+          #   with:
+          #     role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          #     aws-region: us-east-1
+          echo "MANUAL REVIEW REQUIRED — see comment above"
+
+      # [seq:3] git-clone → actions/checkout (deterministic, tier A)
+      - name: Clone Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+  # ── BUILD ─────────────────────────────────────────────────────────────────
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # [seq:4] step.build → docker/build-push-action (deterministic, tier A)
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ env.ECR_REPO }}:${{ needs.prepare.outputs.image-tag }}
+          build-args: |
+            NODE_ENV=production
+            APP_VERSION=${{ needs.prepare.outputs.image-tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # [seq:5] step.push → docker/build-push-action with push:true (deterministic, tier A)
+      - name: Push to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ECR_REPO }}:${{ needs.prepare.outputs.image-tag }}
+            ${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+
+  # ── TEST ──────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - uses: actions/checkout@v4
+
+      # [seq:6] step.freestyle (npm test) → run step (pattern: freestyle-to-run)
+      - name: Run Unit Tests
+        run: |
+          npm ci --prefer-offline
+          npm test -- --coverage --ci
+          npm run test:report
+
+      # [seq:7] step.freestyle (sonar-scanner) — MANUAL REVIEW: SonarQube plugin, no direct mapping
+      - name: Code Quality Scan (MANUAL REVIEW)
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          # TODO: Use SonarSource/sonarqube-scan-action@v3 or SonarSource/sonarcloud-github-action
+          # The CF step ran sonar-scanner CLI directly; consider the official action instead.
+          #
+          # Example:
+          #   uses: SonarSource/sonarqube-scan-action@v3
+          #   with:
+          #     args: >
+          #       -Dsonar.projectKey=crm-app
+          #       -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+          echo "MANUAL REVIEW REQUIRED — see comment above"
+
+      # [seq:8] step.freestyle with retry → run step + job-level retry (fallback: retry pattern)
+      - name: Integration Tests
+        run: |
+          npm run test:integration -- --baseUrl=${{ vars.STAGING_URL }} --reporter=junit
+
+  # ── STAGING ───────────────────────────────────────────────────────────────
+  staging:
+    name: Staging
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      # [seq:9] step.deploy (helm) → azure/setup-helm + helm upgrade (pattern: deploy-to-environment)
+      - name: Deploy to Staging
+        run: |
+          helm upgrade --install crm-staging charts/crm-app \
+            --kube-context staging-eks-cluster \
+            --namespace staging \
+            --set image.tag=${{ needs.prepare.outputs.image-tag }} \
+            --set image.repository=${{ env.ECR_REPO }} \
+            --set replicaCount=2 \
+            --wait
+
+      # [seq:10] step.freestyle (newman) — fallback: no newman action, raw run step used
+      - name: Smoke Tests
+        run: |
+          npx newman run collections/smoke-tests.json \
+            --env-var BASE_URL=${{ vars.STAGING_URL }} \
+            --env-var API_KEY=${{ secrets.STAGING_API_KEY }} \
+            --reporters cli,junit \
+            --reporter-junit-export results/smoke.xml
+
+  # ── PRODUCTION ────────────────────────────────────────────────────────────
+  production:
+    name: Production
+    runs-on: ubuntu-latest
+    needs: staging
+    environment: production
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      # [seq:11] step.deploy (helm) to prod — MANUAL REVIEW: prod gate, approval, rollback strategy
+      - name: Deploy to Production (MANUAL REVIEW)
+        run: |
+          # TODO: Add rollback strategy, progressive delivery gate, and Helm diff preview.
+          # The CF step had no rollback or blue/green logic; production deploys typically
+          # require a separate approval job and canary rollout in GHA.
+          #
+          # Minimum viable replacement:
+          #   helm upgrade --install crm-production charts/crm-app \
+          #     --kube-context prod-eks-cluster \
+          #     --namespace production \
+          #     --set image.tag=${{ needs.prepare.outputs.image-tag }} \
+          #     --set image.repository=${{ env.ECR_REPO }} \
+          #     --set replicaCount=5 \
+          #     --atomic --timeout 10m
+          echo "MANUAL REVIEW REQUIRED — see comment above"
+
+  # ── NOTIFY ────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: production
+    if: always()
+    steps:
+      # [seq:12] step.freestyle (curl webhook) → run step (pattern: freestyle-to-run, low confidence)
+      - name: Notify Teams Channel
+        run: |
+          curl -s -X POST "${{ secrets.TEAMS_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"✅ CRM \`${{ needs.prepare.outputs.image-tag }}\` deployed to production by ${{ github.actor }}\"}"
