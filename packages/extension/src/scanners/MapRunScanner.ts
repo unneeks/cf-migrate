@@ -25,10 +25,17 @@ export class MapRunScanner {
     const results: MapRunEntry[] = [];
 
     for (const folder of workspaceFolders) {
-      const uris = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(folder, '**/*.map.json'),
-        '**/node_modules/**',
-      );
+      const seen = new Set<string>();
+      const uris: vscode.Uri[] = [];
+      for (const glob of ['**/*.map.json', '**/*-map.json']) {
+        const found = await vscode.workspace.findFiles(
+          new vscode.RelativePattern(folder, glob),
+          '**/node_modules/**',
+        );
+        for (const u of found) {
+          if (!seen.has(u.fsPath)) { seen.add(u.fsPath); uris.push(u); }
+        }
+      }
 
       for (const uri of uris) {
         try {
